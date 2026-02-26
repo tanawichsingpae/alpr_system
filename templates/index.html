@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<title>ALPR Demo</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<style>
+body {
+    margin: 0;
+    font-family: 'Segoe UI', Tahoma, sans-serif;
+    background: linear-gradient(135deg, #0f2027, #203a43, #2c5364);
+    color: #ffffff;
+    display: flex;
+    justify-content: center;
+    padding: 40px 20px;
+}
+
+.container {
+    background: #ffffff;
+    color: #333;
+    width: 100%;
+    max-width: 1000px;
+    padding: 30px;
+    border-radius: 15px;
+    box-shadow: 0 15px 35px rgba(0,0,0,0.3);
+}
+
+h2, h3 { text-align: center; color: #1565c0; }
+
+button {
+    background: linear-gradient(45deg, #1e88e5, #42a5f5);
+    border: none;
+    padding: 10px 25px;
+    color: white;
+    font-size: 16px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: 0.3s;
+}
+
+button:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(33,150,243,0.4);
+}
+
+video {
+    width: 100%;
+    border-radius: 10px;
+    border: 2px solid #1e88e5;
+}
+
+.result-box {
+    margin-top: 20px;
+    padding: 15px;
+    background: #f5f9ff;
+    border-radius: 10px;
+    text-align: center;
+}
+
+.no-result {
+    color: red;
+    font-weight: bold;
+}
+</style>
+</head>
+
+<body>
+<div class="container">
+
+<h2>🚘 ALPR Real-Time Demo</h2>
+
+<h3>📷 Real-Time Camera</h3>
+<video id="video" autoplay playsinline></video>
+<br><br>
+<button onclick="startCamera()">Start Camera</button>
+
+<div id="liveResult" class="result-box"></div>
+
+<hr>
+
+<h3>📂 Upload Image (Manual Test)</h3>
+<form id="uploadForm">
+    <input type="file" name="file" id="fileInput" accept="image/*" required>
+    <br><br>
+    <button type="submit">Predict</button>
+</form>
+
+<div id="uploadResult" class="result-box"></div>
+
+</div>
+
+<script>
+const video = document.getElementById("video");
+const liveResult = document.getElementById("liveResult");
+let stableCount = 0;
+let sending = false;
+
+/* ===============================
+   CAMERA SECTION
+================================= */
+
+async function startCamera() {
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: "environment" }
+        });
+        video.srcObject = stream;
+        setInterval(sendFrame, 500);
+    } catch (err) {
+        alert("Camera Error: " + err);
+    }
+}
+
+async function sendFrame() {
+
+    if (sending) return;
+
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(video, 0, 0);
+
+    canvas.toBlob(async (blob) => {
+
+        let formData = new FormData();
+        formData.append("file", blob, "frame.jpg");
+
+        const response = await fetch("/detect_plate", {
+            method: "POST",
+            body: formData
+        });
+
+        const data = await response.json();
+
+        if (data.detected) {
+            stableCount++;
+            liveResult.innerHTML =
+                "🔍 Detecting... (" + stableCount + ")<br>" +
+                "Type: " + data.type +
+                "<br>Conf: " + data.confidence.toFixed(2);
+
+            if (stableCount >= 5) {
+                sending = true;
+                sendToOCR(blob);
+                stableCount = 0;
+            }
+        } else {
+            stableCount = 0;
+            liveResult.innerHTML = "No plate detected";
+        }
+
+    }, "image/jpeg", 0.7);
+}
+
+async function sendToOCR(blob) {
+
+    let formData = new FormData();
+    formData.append("file", blob, "capture.jpg");
+
+    const response = await fetch("/predict", {
+        method: "POST",
+        body: formData
+    });
+
+    const data = await response.json();
+
+    if (!data.plates || data.plates.length === 0) {
+        liveResult.innerHTML = "<span class='no-result'>❌ OCR Failed</span>";
+        sending = false;
+        return;
+    }
+
+    const plate = data.plates[0];
+
+    liveResult.innerHTML =
+        "<b>ทะเบียน:</b> " + plate.series_number +
+        "<br><b>จังหวัด:</b> " + plate.province;
+
+    sending = false;
+}
+
+/* ===============================
+   UPLOAD SECTION (เดิม)
+================================= */
+
+document.getElementById("uploadForm").onsubmit = async function(e) {
+    e.preventDefault();
+
+    const formData = new FormData(this);
+
+    const response = await fetch("/predict", {
+        method: "POST",
+        body: formData
+    });
+
+    const data = await response.json();
+    const resultDiv = document.getElementById("uploadResult");
+    resultDiv.innerHTML = "";
+
+    if (!data.plates || data.plates.length === 0) {
+        resultDiv.innerHTML = "<span class='no-result'>❌ No plate detected</span>";
+        return;
+    }
+
+    const plate = data.plates[0];
+
+    resultDiv.innerHTML =
+        "<b>ทะเบียน:</b> " + plate.series_number +
+        "<br><b>จังหวัด:</b> " + plate.province +
+        "<br><br><img width='300' src='data:image/jpeg;base64," + plate.preview + "'>";
+};
+</script>
+
+</body>
+</html>
