@@ -835,7 +835,7 @@ async def process_parking(plate, province, plate_img_b64, full_img_b64):
         conn.commit()
         conn.close()
 
-        # 🔴 broadcast event
+        # broadcast event
         await broadcast({
             "type": "event",
             "status": "EXIT",
@@ -844,7 +844,7 @@ async def process_parking(plate, province, plate_img_b64, full_img_b64):
             "fee": fee
         })
 
-        # 🔴 update dashboard summary
+        # update dashboard summary
         await broadcast(get_summary())
 
         return "EXIT", minutes, fee
