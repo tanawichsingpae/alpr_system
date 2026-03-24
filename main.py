@@ -1,4 +1,4 @@
-from fastapi import FastAPI, File, UploadFile, Request
+from fastapi import FastAPI, File, UploadFile, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from ultralytics import YOLO
@@ -10,6 +10,8 @@ import numpy as np
 import base64
 import sqlite3
 from datetime import datetime
+import json
+import asyncio
 
 app = FastAPI()
 templates = Jinja2Templates(directory="templates")
@@ -19,7 +21,7 @@ ocr_model = None
 class_names = None
 
 DB_NAME = "parking.db"
-
+connected_clients = []
 # =============================
 # Mapping Dictionary
 # =============================
@@ -550,27 +552,61 @@ def clean_items(items):
 
 def robust_parse(items):
 
-    # normalize Y แล้ว sort
-    items_sorted = sorted(
-        items,
-        key=lambda x: (round(x["y_center"]/10)*10, x["x_center"])
-    )
+    # sort จากซ้ายไปขวา
+    items_sorted = sorted(items, key=lambda x: x["x_center"])
 
-    series_labels = []
+    labels = [label_from_item(i) for i in items_sorted]
+
     province_labels = []
+    main_labels = []
 
-    for item in items_sorted:
+    for label in labels:
 
-        label = label_from_item(item)
-
-        # province เป็นคำยาว เช่น "กรุงเทพมหานคร"
+        # จังหวัด
         if len(label) > 2 and not label.isdigit():
             province_labels.append(label)
-        else:
-            series_labels.append(label)
 
-    series_number = "".join(series_labels)
+        else:
+            main_labels.append(label)
+
     province = "".join(province_labels)
+
+    if not main_labels:
+        return "", province
+
+    # -------------------------
+    # แยก digit กับ letter
+    # -------------------------
+
+    digits = []
+    letters = []
+
+    for ch in main_labels:
+
+        if ch.isdigit():
+            digits.append(ch)
+
+        else:
+            letters.append(ch)
+
+    # -------------------------
+    # build plate string
+    # -------------------------
+
+    # กรณีมี digit นำหน้า เช่น 1กข
+    prefix_digit = ""
+
+    if len(digits) >= 1 and main_labels[0].isdigit():
+        prefix_digit = digits[0]
+        digits = digits[1:]
+
+    # จำกัดตัวอักษรไม่เกิน 2 ตัว
+    letters = letters[:2]
+
+    # เลขท้ายไม่เกิน 4 ตัว
+    digits = digits[:4]
+
+    series_number = prefix_digit + "".join(letters) + "".join(digits)
 
     return series_number, province
 
@@ -655,7 +691,7 @@ async def predict(file: UploadFile = File(...)):
 
 
     # Parking logic
-    status, duration, fee = process_parking(
+    status, duration, fee = await process_parking(
 
         series_number,
         province,
@@ -712,7 +748,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-def process_parking(plate, province, plate_img_b64, full_img_b64):
+async def broadcast(message: dict):
+
+    data = json.dumps(message, ensure_ascii=False)
+
+    for client in connected_clients[:]:
+
+        try:
+            await client.send_text(data)
+
+        except:
+            connected_clients.remove(client)
+
+async def process_parking(plate, province, plate_img_b64, full_img_b64):
 
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
@@ -731,7 +779,9 @@ def process_parking(plate, province, plate_img_b64, full_img_b64):
 
     if row is None:
 
+        # =========================
         # ENTRY
+        # =========================
         c.execute("""
             INSERT INTO parking_records
             (plate, province, entry_time, entry_image, plate_image)
@@ -747,6 +797,17 @@ def process_parking(plate, province, plate_img_b64, full_img_b64):
         conn.commit()
         conn.close()
 
+        # 🔴 broadcast event
+        await broadcast({
+            "type": "event",
+            "status": "ENTRY",
+            "plate": plate,
+            "province": province
+        })
+
+        # 🔴 update dashboard summary
+        await broadcast(get_summary())
+
         return "ENTRY", 0, 0
 
 
@@ -756,6 +817,9 @@ def process_parking(plate, province, plate_img_b64, full_img_b64):
 
         minutes, fee = calculate_fee(entry_time, now)
 
+        # =========================
+        # EXIT
+        # =========================
         c.execute("""
             UPDATE parking_records
             SET exit_time=?, exit_image=?, fee=?, duration_minutes=?
@@ -770,6 +834,18 @@ def process_parking(plate, province, plate_img_b64, full_img_b64):
 
         conn.commit()
         conn.close()
+
+        # 🔴 broadcast event
+        await broadcast({
+            "type": "event",
+            "status": "EXIT",
+            "plate": plate,
+            "province": province,
+            "fee": fee
+        })
+
+        # 🔴 update dashboard summary
+        await broadcast(get_summary())
 
         return "EXIT", minutes, fee
 
@@ -788,3 +864,68 @@ def get_records():
     conn.close()
 
     return {"records": rows}
+
+def get_summary():
+
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+
+    today = datetime.now().strftime("%Y-%m-%d")
+
+    c.execute(
+        "SELECT COUNT(*) FROM parking_records WHERE entry_time LIKE ?",
+        (f"{today}%",)
+    )
+    entries = c.fetchone()[0]
+
+    c.execute(
+        "SELECT COUNT(*) FROM parking_records WHERE exit_time LIKE ?",
+        (f"{today}%",)
+    )
+    exits = c.fetchone()[0]
+
+    c.execute(
+        "SELECT COUNT(*) FROM parking_records WHERE exit_time IS NULL"
+    )
+    parked = c.fetchone()[0]
+
+    c.execute(
+        "SELECT SUM(fee) FROM parking_records WHERE exit_time LIKE ? AND fee IS NOT NULL",
+        (f"{today}%",)
+    )
+    money = c.fetchone()[0] or 0
+
+    conn.close()
+
+    return {
+        "type": "summary",
+        "in": entries,
+        "out": exits,
+        "park": parked,
+        "money": money
+    }
+
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+
+    await websocket.accept()
+    connected_clients.append(websocket)
+
+    try:
+
+        await websocket.send_text(
+            json.dumps(get_summary(), ensure_ascii=False)
+        )
+
+        while True:
+            await websocket.receive_text()
+
+    except:
+
+        pass
+
+    finally:
+
+        if websocket in connected_clients:
+            connected_clients.remove(websocket)
+
