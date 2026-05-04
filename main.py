@@ -5,6 +5,7 @@ from ultralytics import YOLO
 from sklearn.cluster import KMeans
 from fastapi.middleware.cors import CORSMiddleware
 from database import init_db
+from difflib import SequenceMatcher
 import cv2
 import numpy as np
 import base64
@@ -12,6 +13,8 @@ import sqlite3
 from datetime import datetime
 import json
 import asyncio
+import math
+import os
 
 app = FastAPI()
 templates = Jinja2Templates(directory="templates")
@@ -20,8 +23,19 @@ plate_model = None
 ocr_model = None
 class_names = None
 
-DB_NAME = "parking.db"
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_NAME = os.path.join(BASE_DIR, "parking.db")
 connected_clients = []
+last_seen = {}
+
+
+DEBUG_DIR = "debug_steps"
+os.makedirs(DEBUG_DIR, exist_ok=True)
+
+def save_step(name, img):
+    path = os.path.join(DEBUG_DIR, f"{name}.jpg")
+    cv2.imwrite(path, img)
 # =============================
 # Mapping Dictionary
 # =============================
@@ -172,8 +186,8 @@ def startup():
 def load_models():
     global car_model, motor_model, ocr_model, class_names
 
-    car_model = YOLO("runs/detect/car_plate_v2/weights/best.pt")
-    ocr_model = YOLO("runs/detect/ocr_v2/weights/best.pt")
+    car_model = YOLO("weights/car_plate_v2/weights/best.pt")
+    ocr_model = YOLO("weights/ocr_v2/weights/best.pt")
 
     class_names = ocr_model.names
 
@@ -198,19 +212,18 @@ def get_best_detection(results):
 
     return best_conf, best_box
 
-def detect_plate_stable(img, attempts=3):
+def detect_plate_stable(img, attempts=2):
 
     best_conf = 0
     best_box = None
 
     for _ in range(attempts):
 
-        results = car_model(img, conf=0.25)
+        results = car_model(img, conf=0.25, verbose=False)
 
         conf, box = get_best_detection(results)
 
         if box is not None and conf > best_conf:
-
             best_conf = conf
             best_box = box
 
@@ -305,26 +318,47 @@ def pca_align_plate(image):
 
 
 def enhance_plate_for_ocr(image):
-    # upscale เพื่อเพิ่มความคมของตัวอักษรเล็ก
+
+    # -----------------
+    # STEP 7 UPSCALE
+    # -----------------
     h, w = image.shape[:2]
     scale = 2.0 if min(h, w) < 160 else 1.5
     resized = cv2.resize(image, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
 
-    # ลด noise โดยรักษาขอบ
+    save_step("step7_upscale", resized)
+
+
+    # -----------------
+    # STEP 8 DENOISE
+    # -----------------
     denoised = cv2.bilateralFilter(resized, d=7, sigmaColor=55, sigmaSpace=55)
 
+    save_step("step8_denoise", denoised)
+
+
+    # -----------------
+    # STEP 9 CLAHE
+    # -----------------
     gray = cv2.cvtColor(denoised, cv2.COLOR_BGR2GRAY)
 
-    # เพิ่ม local contrast
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
     contrast = clahe.apply(gray)
 
-    # sharpen เบา ๆ
+    save_step("step9_clahe", cv2.cvtColor(contrast, cv2.COLOR_GRAY2BGR))
+
+
+    # -----------------
+    # STEP 10 SHARPEN
+    # -----------------
     blurred = cv2.GaussianBlur(contrast, (0, 0), 1.0)
+
     sharpened = cv2.addWeighted(contrast, 1.4, blurred, -0.4, 0)
 
-    # OCR model รับภาพสี: แปลงกลับ BGR เพื่อไม่แตะ pipeline เดิม
-    return cv2.cvtColor(sharpened, cv2.COLOR_GRAY2BGR)
+    save_step("step10_sharpen", cv2.cvtColor(sharpened, cv2.COLOR_GRAY2BGR))
+
+
+    return cv2.cvtColor(contrast, cv2.COLOR_GRAY2BGR)
 
 def decode_ocr_items(ocr_results):
     items = []
@@ -489,12 +523,14 @@ def parse_car_top_row(top_row):
 
 
 def run_ocr_with_fallback(ocr_input, plate_type):
+
     primary = ocr_model(ocr_input, conf=0.30)
     primary_items = decode_ocr_items(primary)
     primary_top, primary_bottom = split_rows(primary_items)
 
-    # ป้ายรถยนต์มักมี 2-3 ตัวด้านซ้าย ถ้าน้อยผิดปกติให้ลด threshold อีกรอบ
-    if plate_type == "car" and len(primary_top) < 3:
+    avg_conf = np.mean([item["conf"] for item in primary_items]) if primary_items else 0
+
+    if plate_type == "car" and avg_conf < 0.5 and len(primary_items) < 6:
         retry = ocr_model(ocr_input, conf=0.22)
         retry_items = decode_ocr_items(retry)
         retry_top, retry_bottom = split_rows(retry_items)
@@ -504,6 +540,7 @@ def run_ocr_with_fallback(ocr_input, plate_type):
 
     return primary_items, primary_top, primary_bottom
 
+
 @app.post("/detect_plate")
 async def detect_plate(file: UploadFile = File(...)):
     contents = await file.read()
@@ -511,7 +548,9 @@ async def detect_plate(file: UploadFile = File(...)):
     img = cv2.imdecode(npimg, cv2.IMREAD_COLOR)
 
     # ลด resolution เพื่อให้เร็ว
-    img_small = cv2.resize(img, (640, 480))
+    h, w = img.shape[:2]
+    scale = 640 / max(h, w)
+    img_small = cv2.resize(img, (int(w*scale), int(h*scale)))
 
     car_results = car_model(img_small, conf=0.30)
 
@@ -610,6 +649,7 @@ def robust_parse(items):
 
     return series_number, province
 
+
 @app.post("/predict")
 async def predict(file: UploadFile = File(...)):
 
@@ -618,10 +658,16 @@ async def predict(file: UploadFile = File(...)):
     npimg = np.frombuffer(contents, np.uint8)
 
     img = cv2.imdecode(npimg, cv2.IMREAD_COLOR)
+    save_step("step1_original", img)
 
 
     # Detect plate (stable version)
     car_conf, car_box = detect_plate_stable(img)
+    det_vis = img.copy()
+    if car_box is not None:
+        px1,py1,px2,py2 = map(int, car_box)
+        cv2.rectangle(det_vis,(px1,py1),(px2,py2),(0,255,0),3)
+    save_step("step2_plate_detection", det_vis)
 
     if car_box is None:
         return {"plates": []}
@@ -631,30 +677,36 @@ async def predict(file: UploadFile = File(...)):
 
 
     # Crop plate
-    x1, y1, x2, y2 = map(int, selected_box)
+    px1, py1, px2, py2 = map(int, selected_box)
 
     h_img, w_img = img.shape[:2]
 
-    pad_x = int((x2 - x1) * 0.05)
-    pad_y = int((y2 - y1) * 0.05)
+    pad_x = int((px2 - px1) * 0.05)
+    pad_y = int((py2 - py1) * 0.05)
 
-    x1 = max(0, x1 - pad_x)
-    y1 = max(0, y1 - pad_y)
+    px1 = max(0, px1 - pad_x)
+    py1 = max(0, py1 - pad_y)
 
-    x2 = min(w_img, x2 + pad_x)
-    y2 = min(h_img, y2 + pad_y)
+    px2 = min(w_img, px2 + pad_x)
+    py2 = min(h_img, py2 + pad_y)
 
-    plate_crop = img[y1:y2, x1:x2]
+    plate_crop = img[py1:py2, px1:px2]
+    save_step("step3_plate_crop", plate_crop)
+    # resize ก่อน
+    plate_crop = cv2.resize(plate_crop, (320,160))
+    save_step("step4_resize", plate_crop)
 
 
     # Preprocess
     try:
         plate_crop = deskew_plate(plate_crop)
+        save_step("step5_deskew", plate_crop)
     except:
         pass
 
     try:
         plate_crop = pca_align_plate(plate_crop)
+        save_step("step6_pca_align", plate_crop)
     except:
         pass
 
@@ -669,6 +721,13 @@ async def predict(file: UploadFile = File(...)):
         plate_crop,
         plate_type
     )
+    ocr_vis = plate_crop.copy()
+
+    for item in items:
+        cx1,cy1,cx2,cy2 = map(int,item["box"])
+        cv2.rectangle(ocr_vis,(cx1,cy1),(cx2,cy2),(0,255,0),2)
+
+    save_step("step11_ocr_detection", ocr_vis)
 
     if not items:
         return {"plates": []}
@@ -678,6 +737,21 @@ async def predict(file: UploadFile = File(...)):
     items = clean_items(items)
 
     series_number, province = robust_parse(items)
+    final_vis = img.copy()
+
+    cv2.rectangle(final_vis,(px1,py1),(px2,py2),(0,255,0),3)
+
+    cv2.putText(
+        final_vis,
+        series_number,
+        (px1, py1-10),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        1,
+        (0,255,0),
+        2
+    )
+
+    save_step("step12_final_result", final_vis)
 
 
     # Encode images
@@ -722,6 +796,7 @@ async def predict(file: UploadFile = File(...)):
         }]
     }
 
+
 def calculate_fee(entry_time_str, exit_time_str):
 
     entry = datetime.strptime(entry_time_str, "%Y-%m-%d %H:%M:%S")
@@ -740,6 +815,7 @@ def calculate_fee(entry_time_str, exit_time_str):
 
     return minutes, fee
 
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -747,6 +823,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 
 async def broadcast(message: dict):
 
@@ -760,66 +837,52 @@ async def broadcast(message: dict):
         except:
             connected_clients.remove(client)
 
+
 async def process_parking(plate, province, plate_img_b64, full_img_b64):
 
-    conn = sqlite3.connect(DB_NAME)
+    plate = normalize_plate(plate)
+
+    now_ts = datetime.now().timestamp()
+
+    # ป้องกันกล้องยิงซ้ำ
+    if plate in last_seen and now_ts - last_seen[plate] < 4:
+        return "SKIP", 0, 0
+
+    last_seen[plate] = now_ts
+
+    conn = sqlite3.connect(DB_NAME, check_same_thread=False)
     c = conn.cursor()
 
     c.execute("""
-        SELECT id, entry_time
+        SELECT id, plate, entry_time
         FROM parking_records
-        WHERE plate=? AND exit_time IS NULL
+        WHERE exit_time IS NULL
         ORDER BY entry_time DESC
-        LIMIT 1
-    """, (plate,))
+    """)
 
-    row = c.fetchone()
+    rows = c.fetchall()
+
+    best_match = None
+    best_score = 0
+
+    for r in rows:
+        record_id, db_plate, entry_time = r
+
+        score = similar(plate, db_plate)
+
+        if score > best_score:
+            best_score = score
+            best_match = r
 
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    if row is None:
+    # ถ้า similarity สูง ถือว่าเป็นรถเดิม
+    if best_match and best_score > 0.65:
 
-        # =========================
-        # ENTRY
-        # =========================
-        c.execute("""
-            INSERT INTO parking_records
-            (plate, province, entry_time, entry_image, plate_image)
-            VALUES (?, ?, ?, ?, ?)
-        """, (
-            plate,
-            province,
-            now,
-            full_img_b64,
-            plate_img_b64
-        ))
-
-        conn.commit()
-        conn.close()
-
-        # broadcast event
-        await broadcast({
-            "type": "event",
-            "status": "ENTRY",
-            "plate": plate,
-            "province": province
-        })
-
-        # update dashboard summary
-        await broadcast(get_summary())
-
-        return "ENTRY", 0, 0
-
-
-    else:
-
-        record_id, entry_time = row
+        record_id, db_plate, entry_time = best_match
 
         minutes, fee = calculate_fee(entry_time, now)
 
-        # =========================
-        # EXIT
-        # =========================
         c.execute("""
             UPDATE parking_records
             SET exit_time=?, exit_image=?, fee=?, duration_minutes=?
@@ -835,23 +898,50 @@ async def process_parking(plate, province, plate_img_b64, full_img_b64):
         conn.commit()
         conn.close()
 
-        # broadcast event
         await broadcast({
             "type": "event",
             "status": "EXIT",
-            "plate": plate,
+            "plate": db_plate,
             "province": province,
             "fee": fee
         })
 
-        # update dashboard summary
         await broadcast(get_summary())
 
         return "EXIT", minutes, fee
 
+    else:
+
+        c.execute("""
+            INSERT INTO parking_records
+            (plate, province, entry_time, entry_image, plate_image)
+            VALUES (?, ?, ?, ?, ?)
+        """, (
+            plate,
+            province,
+            now,
+            full_img_b64,
+            plate_img_b64
+        ))
+
+        conn.commit()
+        conn.close()
+
+        await broadcast({
+            "type": "event",
+            "status": "ENTRY",
+            "plate": plate,
+            "province": province
+        })
+
+        await broadcast(get_summary())
+
+        return "ENTRY", 0, 0
+
+
 @app.get("/records")
 def get_records():
-    conn = sqlite3.connect(DB_NAME)
+    conn = sqlite3.connect(DB_NAME, check_same_thread=False)
     c = conn.cursor()
 
     c.execute("""
@@ -865,9 +955,10 @@ def get_records():
 
     return {"records": rows}
 
+
 def get_summary():
 
-    conn = sqlite3.connect(DB_NAME)
+    conn = sqlite3.connect(DB_NAME, check_same_thread=False)
     c = conn.cursor()
 
     today = datetime.now().strftime("%Y-%m-%d")
@@ -905,6 +996,7 @@ def get_summary():
         "money": money
     }
 
+
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
 
@@ -929,3 +1021,11 @@ async def websocket_endpoint(websocket: WebSocket):
         if websocket in connected_clients:
             connected_clients.remove(websocket)
 
+
+
+def normalize_plate(p: str):
+    return p.replace(" ", "").strip()
+
+
+def similar(a, b):
+    return SequenceMatcher(None, a, b).ratio()
