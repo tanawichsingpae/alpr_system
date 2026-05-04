@@ -33,6 +33,9 @@
 ├── runs/                # โฟลเดอร์จัดเก็บโมเดล YOLO (Detection & OCR weights)
 └── parking.db           # ฐานข้อมูล SQLite (สร้างอัตโนมัติเมื่อรันระบบ)
 
+
+
+
 🚀 How it Works
 Image Acquisition: ระบบรับภาพจากกล้องผ่าน API Endpoint /predict
 
