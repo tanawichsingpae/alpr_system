@@ -6,31 +6,101 @@
 
 ## 🌟 Key Features
 
-* **Automatic Plate Detection & OCR**: ใช้โมเดล **YOLO** (You Only Look Once) ในการตรวจจับตำแหน่งป้ายทะเบียน (Detection) และดึงข้อมูลตัวอักษร ตัวเลข รวมถึงจังหวัดจากป้ายทะเบียนได้อย่างแม่นยำ (OCR)
-* **Advanced Image Preprocessing**: มีระบบปรับปรุงคุณภาพรูปภาพอัตโนมัติ เช่น การดัดภาพให้ตรง (Deskew & PCA Alignment), การปรับ Contrast (CLAHE) และการเพิ่มความคมชัด (Sharpening) เพื่อเพิ่มความแม่นยำสูงสุดก่อนส่งให้ OCR
-* **Parking Logic & Fee Calculation**: ระบบคำนวณระยะเวลาการจอดและค่าบริการอัตโนมัติ โดยมีเงื่อนไขจอดฟรี 30 นาทีแรก และคิดค่าบริการรายนาทีในลำดับถัดไป[cite: 3]
-* **Real-time Dashboard & Updates**: แสดงสถานะรถเข้า-ออก และสรุปรายได้ประจำวันผ่าน **WebSocket** ทำให้ข้อมูลบนหน้าจออัปเดตทันทีโดยไม่ต้องกด Refresh
-* **Database Management**: บันทึกประวัติการจอดรถ พร้อมเก็บข้อมูลรูปภาพหลักฐานในรูปแบบ Base64 ลงในระบบฐานข้อมูล **SQLite**[cite: 1, 4]
+* **Automatic Plate Detection & OCR**
+  ใช้โมเดล **YOLO (You Only Look Once)** ในการตรวจจับตำแหน่งป้ายทะเบียน (Detection) และดึงข้อมูลตัวอักษร ตัวเลข รวมถึงจังหวัดจากป้ายทะเบียนได้อย่างแม่นยำ (OCR)
+
+* **Advanced Image Preprocessing**
+  มีระบบปรับปรุงคุณภาพรูปภาพอัตโนมัติ เช่น:
+
+  * Deskew & PCA Alignment
+  * Contrast Enhancement (CLAHE)
+  * Image Sharpening
+
+* **Parking Logic & Fee Calculation**
+
+  * ฟรี 30 นาทีแรก
+  * คิดค่าบริการแบบรายนาทีหลังจากนั้น
+
+* **Real-time Dashboard & Updates**
+  แสดงข้อมูลแบบ Real-time ผ่าน **WebSocket**
+
+* **Database Management**
+  เก็บข้อมูลการจอด + รูปภาพ (Base64) ลง **SQLite**
 
 ---
 
 ## 🛠 Tech Stack
 
 * **Backend**: FastAPI (Python)
-* **AI/ML/Computer Vision**: YOLO Model (Ultralytics), OpenCV, Scikit-learn (KMeans/PCA)
-* **Database**: SQLite[cite: 1, 4]
-* **Frontend Interface**: HTML, JavaScript (Tailwind CSS/Bootstrap)
+* **AI/ML/Computer Vision**: YOLO, OpenCV, Scikit-learn
+* **Database**: SQLite
+* **Frontend**: HTML, JavaScript (Tailwind / Bootstrap)
 * **Communication**: WebSocket & REST API
 
 ---
 
 ## 📂 Project Structure
+
 ```text
-├── main.py              # ไฟล์หลักควบคุม API Endpoints และ Logic ทั้งหมดของระบบ[cite: 2]
-├── database.py          # ส่วนจัดการ Schema และการเชื่อมต่อฐานข้อมูล SQLite[cite: 1, 4]
-├── templates/           # ไฟล์หน้ากาก UI สำหรับแสดงผล Dashboard[cite: 2, 3]
-├── runs/                # โฟลเดอร์จัดเก็บโมเดล YOLO (Detection & OCR weights)[cite: 2, 3]
-└── parking.db           # ฐานข้อมูล SQLite (สร้างอัตโนมัติเมื่อรันระบบ)[cite: 1, 2]
+├── main.py
+├── database.py
+├── templates/
+├── runs/
+└── parking.db
+```
 
+---
 
-🚀 How it Worksกระบวนการทำงานของระบบแบ่งออกเป็นขั้นตอนหลัก ดังนี้:[cite: 2, 3]Image Acquisition: ระบบรับภาพจากกล้องหรือการอัปโหลดไฟล์ผ่าน API Endpoint /predict ในรูปแบบ Multi-part form data[cite: 2, 3]Vehicle & Plate Detection: ใช้ YOLO Model (Detection) วิเคราะห์ภาพเพื่อระบุตำแหน่งของป้ายทะเบียนรถยนต์ และทำการ Crop ภาพเฉพาะส่วนป้ายทะเบียนออกมา[cite: 2, 3]Image Enhancement: ปรับปรุงคุณภาพรูปภาพที่ Crop มาด้วยเทคนิคทาง Computer Vision เช่น การทำ Deskew, PCA Alignment เพื่อดัดภาพให้ตรง และใช้ CLAHE กับ Sharpening เพื่อเพิ่มความคมชัดของตัวอักษร[cite: 3]OCR Processing: YOLO Model (OCR) จะอ่านค่าตัวเลข ตัวอักษรหมวดทะเบียน และชื่อจังหวัด จากนั้นระบบจะทำการเปรียบเทียบข้อมูลในฐานข้อมูล[cite: 2, 3]Business Logic & Database:[cite: 2, 3]ENTRY: หากไม่พบข้อมูลรถในระบบ ระบบจะบันทึกข้อมูลใหม่พร้อมภาพถ่ายหลักฐานลง SQLite  EXIT: หากพบข้อมูลรถเดิม ระบบจะคำนวณระยะเวลาจอดและค่าธรรมเนียม พร้อมอัปเดตสถานะการออก[cite: 2, 3]Real-time Broadcast: ส่งข้อมูลเหตุการณ์และสรุปยอดรายได้ไปยังหน้า Dashboard ทันทีผ่าน WebSocket[cite: 2, 3]
+## 🚀 How it Works
+
+1. **Image Acquisition**
+   รับภาพจากกล้องหรือ API (`/predict`)
+
+2. **Vehicle & Plate Detection**
+   ใช้ YOLO ตรวจจับและ crop ป้ายทะเบียน
+
+3. **Image Enhancement**
+
+   * Deskew / PCA Alignment
+   * CLAHE
+   * Sharpening
+
+4. **OCR Processing**
+   อ่านเลขทะเบียน + ตัวอักษร + จังหวัด
+
+5. **Business Logic**
+
+   * ENTRY → บันทึกข้อมูลรถ
+   * EXIT → คำนวณเวลา + ค่าจอด
+
+6. **Real-time Update**
+   ส่งข้อมูลไป Dashboard ผ่าน WebSocket
+
+---
+
+## ⚙️ Installation & Usage
+
+### 1. Clone Repository
+
+```bash
+git clone https://github.com/yourusername/smart-parking-lpr.git
+cd smart-parking-lpr
+```
+
+### 2. Install Dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+### 3. Run Server
+
+```bash
+uvicorn main:app --reload
+```
+
+### 4. Access Dashboard
+
+```
+http://127.0.0.1:8000
+```
