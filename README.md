@@ -33,39 +33,30 @@
 ├── runs/                # โฟลเดอร์จัดเก็บโมเดล YOLO (Detection & OCR weights)
 └── parking.db           # ฐานข้อมูล SQLite (สร้างอัตโนมัติเมื่อรันระบบ)
 
+## 🚀 How it Works
 
+กระบวนการทำงานของระบบแบ่งออกเป็น 5 ขั้นตอนหลัก ดังนี้:[cite: 2, 3]
 
+1.  **Image Acquisition**: ระบบรับภาพจากกล้องหรือการอัปโหลดไฟล์ผ่าน API Endpoint `/predict` ในรูปแบบ Multi-part form data[cite: 2, 3]
+2.  **Vehicle & Plate Detection**: ใช้ **YOLO Model** (Detection) วิเคราะห์ภาพเพื่อระบุตำแหน่งของป้ายทะเบียนรถยนต์ และทำการ Crop ภาพเฉพาะส่วนป้ายทะเบียนออกมาเพื่อเตรียมประมวลผลต่อ[cite: 2, 3]
+3.  **Image Enhancement (Preprocessing)**: ปรับปรุงคุณภาพรูปภาพที่ Crop มาด้วยเทคนิคทาง Computer Vision:[cite: 3]
+    *   **Deskew & PCA Alignment**: ดัดภาพที่เอียงให้ตรง[cite: 3]
+    *   **CLAHE**: ปรับสมดุลแสงและความสว่างของภาพ[cite: 3]
+    *   **Sharpening**: เพิ่มความคมชัดของตัวอักษรเพื่อลดความผิดพลาดของ OCR[cite: 3]
+4.  **OCR Processing**: **YOLO Model (OCR)** จะอ่านค่าตัวเลข ตัวอักษรหมวดทะเบียน และชื่อจังหวัด จากนั้นระบบจะทำการเปรียบเทียบความคล้ายคลึง (Similarity Check) กับข้อมูลในฐานข้อมูล[cite: 2, 3]
+5.  **Business Logic & Database**:[cite: 2, 3]
+    *   **ENTRY**: หากไม่พบข้อมูลรถในระบบหรือเป็นรถที่ออกไปแล้ว ระบบจะบันทึกข้อมูลใหม่พร้อมภาพถ่ายหลักฐานลง SQLite[cite: 1, 2, 3]
+    *   **EXIT**: หากพบข้อมูลรถที่ยังไม่ได้เช็คเอาท์ ระบบจะคำนวณระยะเวลาจอดและค่าธรรมเนียม พร้อมอัปเดตสถานะการออก[cite: 2, 3]
+6.  **Real-time Broadcast**: ส่งข้อมูลเหตุการณ์ (Event) และสรุปยอดรายได้ประจำวันไปยังหน้า Dashboard ของเจ้าหน้าที่ทันทีผ่าน **WebSocket**[cite: 2, 3]
 
-🚀 How it Works
-Image Acquisition: ระบบรับภาพจากกล้องผ่าน API Endpoint /predict
+---
 
-Vehicle & Plate Detection: YOLO Model ทำหน้าที่ตรวจจับตำแหน่งป้ายทะเบียนและทำการ Crop ภาพเฉพาะส่วนนั้นออกมา
+## ⚙️ Installation & Usage
 
-Image Enhancement: ภาพป้ายทะเบียนจะถูกทำ Preprocessing เพื่อลบนอยซ์ ปรับความสว่าง และดัดมุมเอียง
+ทำตามขั้นตอนด้านล่างนี้เพื่อติดตั้งและรันโปรเจคในเครื่องของคุณ:
 
-OCR Processing: YOLO Model (OCR) จะอ่านตัวเลข ตัวอักษร และจังหวัด จากนั้นนำข้อมูลไปเปรียบเทียบในฐานข้อมูล
-
-Business Logic & Database:
-
-หากเป็นรถเข้าใหม่ ระบบจะสร้าง Record ใหม่ (ENTRY)
-
-หากเป็นรถเดิมที่เคยเข้ามาแล้ว ระบบจะอัปเดตเวลาออกและคำนวณค่าธรรมเนียม (EXIT)
-
-Real-time Broadcast: ส่งข้อมูลสรุปผลไปยังหน้า Dashboard ของเจ้าหน้าที่ผ่าน WebSocket ทันที
-
-⚙️ Installation & Usage
-Clone the repository
-
-Bash
+### 1. Clone the repository
+เปิด Terminal และรันคำสั่งเพื่อคัดลอกโปรเจค:
+```bash
 git clone [https://github.com/yourusername/smart-parking-lpr.git](https://github.com/yourusername/smart-parking-lpr.git)
 cd smart-parking-lpr
-Install dependencies
-
-Bash
-pip install -r requirements.txt
-Run the server
-
-Bash
-uvicorn main:app --reload
-Access the Dashboard
-เปิด Browser ไปที่ http://127.0.0.1:8000
