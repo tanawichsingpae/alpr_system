@@ -58,7 +58,7 @@
 ---
 
 ## 🔄 System Workflow
-images\system_workflow.jpg
+
 ### Automatic License Plate Recognition Pipeline
 
 ระบบรองรับการรับภาพจาก 2 ช่องทาง ได้แก่:
@@ -89,7 +89,9 @@ images\system_workflow.jpg
 
 📌 ตัวอย่างการเลือก Bounding Box:
 
-images\bounding_box.jpg
+```markdown
+![Best Bounding Box](images\bounding_box.jpg)
+```
 
 ### 5. Crop Plate Region
 
@@ -116,7 +118,9 @@ images\bounding_box.jpg
 
 📌 ตัวอย่าง Character Detection:
 
-images\ocr.jpg
+```markdown
+![Character Detection](images\ocr.jpg)
+```
 
 ### 9. OCR Fallback
 
@@ -147,7 +151,7 @@ images\ocr.jpg
 ## 🖼 System Pipeline Diagram
 
 ```markdown
-![ALPR Pipeline](images/alpr_pipeline.png)
+![ALPR Pipeline](images\system_workflow.jpg)
 ```
 
 ---
@@ -180,7 +184,7 @@ http://127.0.0.1:8000
 ```
 
 ---
-images\web_demo.jpg
+
 ## 📌 Core Functionality
 
 - ตรวจจับป้ายทะเบียนจากภาพรถแบบอัตโนมัติ  
@@ -190,4 +194,7 @@ images\web_demo.jpg
 - อัปเดต Dashboard แบบ Real-time  
 - จัดเก็บข้อมูลย้อนหลังในฐานข้อมูล  
 
+```markdown
+![Web Demo](images\web_demo.jpg)
+```
 ---
