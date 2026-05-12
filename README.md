@@ -89,9 +89,7 @@
 
 📌 ตัวอย่างการเลือก Bounding Box:
 
-```markdown
-![Best Bounding Box](images\bounding_box.jpg)
-```
+![Best Bounding Box](images/bounding_box.jpg)
 
 ### 5. Crop Plate Region
 
@@ -118,9 +116,7 @@
 
 📌 ตัวอย่าง Character Detection:
 
-```markdown
-![Character Detection](images\ocr.jpg)
-```
+![Character Detection](images/ocr.jpg)
 
 ### 9. OCR Fallback
 
@@ -150,9 +146,7 @@
 
 ## 🖼 System Pipeline Diagram
 
-```markdown
-![ALPR Pipeline](images\system_workflow.jpg)
-```
+![ALPR Pipeline](images/system_workflow.jpg)
 
 ---
 
@@ -161,8 +155,8 @@
 ### 1. Clone Repository
 
 ```bash
-git clone https://github.com/yourusername/smart-parking-lpr.git
-cd smart-parking-lpr
+git clone https://github.com/tanawichsingpae/alpr_system.git
+cd alpr_system
 ```
 
 ### 2. Install Dependencies
@@ -194,7 +188,5 @@ http://127.0.0.1:8000
 - อัปเดต Dashboard แบบ Real-time  
 - จัดเก็บข้อมูลย้อนหลังในฐานข้อมูล  
 
-```markdown
-![Web Demo](images\web_demo.jpg)
-```
+![Web Demo](images/web_demo.jpg)
 ---
