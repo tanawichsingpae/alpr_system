@@ -30,3 +30,12 @@ __pycache__/
 # OS
 .DS_Store
 Thumbs.db
+
+*.pt
+*.pth
+*.onnx
+*.zip
+runs/
+weights/
+thai-license-plate-detector/
+thai-license-plate-ocr/
