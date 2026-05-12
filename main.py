@@ -15,6 +15,7 @@ import json
 import asyncio
 import math
 import os
+from huggingface_hub import hf_hub_download
 
 app = FastAPI()
 templates = Jinja2Templates(directory="templates")
@@ -178,16 +179,31 @@ CLASS_MAP = {
 
 # =============================
 
-@app.on_event("startup")
-def startup():
-    load_models()
-    init_db()
-
 def load_models():
-    global car_model, motor_model, ocr_model, class_names
+    global car_model, ocr_model, class_names
 
-    car_model = YOLO("weights/car_plate_v2/weights/best.pt")
-    ocr_model = YOLO("weights/ocr_v2/weights/best.pt")
+    # =========================
+    # Download detector model
+    # =========================
+    detector_path = hf_hub_download(
+        repo_id="tanawichsingpae/thai-license-plate-detector",
+        filename="best.pt"
+    )
+
+    # =========================
+    # Download OCR model
+    # =========================
+    ocr_path = hf_hub_download(
+        repo_id="tanawichsingpae/thai-license-plate-ocr",
+        filename="best.pt"
+    )
+
+    # =========================
+    # Load YOLO models
+    # =========================
+    car_model = YOLO(detector_path)
+
+    ocr_model = YOLO(ocr_path)
 
     class_names = ocr_model.names
 
