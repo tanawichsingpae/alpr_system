@@ -945,7 +945,7 @@ def get_records():
     c = conn.cursor()
 
     c.execute("""
-        SELECT plate, province, entry_time, exit_time
+        SELECT plate, province, entry_time, exit_time, duration_minutes, fee
         FROM parking_records
         ORDER BY entry_time DESC
     """)
@@ -953,7 +953,24 @@ def get_records():
     rows = c.fetchall()
     conn.close()
 
-    return {"records": rows}
+    records = []
+
+    for r in rows:
+        plate, province, entry_time, exit_time, duration, fee = r
+
+        status = "ENTRY" if exit_time is None else "EXIT"
+
+        records.append({
+            "plate": plate,
+            "province": province,
+            "entry_time": entry_time,
+            "exit_time": exit_time,
+            "duration": duration,
+            "fee": fee,
+            "status": status
+        })
+
+    return {"records": records}
 
 
 def get_summary():
