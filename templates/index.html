@@ -107,8 +107,7 @@
         <div class="flex gap-2 mb-6">
           <button id="btnStart" onclick="startCamera()" class="btn-primary">▶️ เปิดกล้อง</button>
           <button id="btnStop" onclick="stopCamera()" class="btn-secondary hidden">⏹️ ปิดกล้อง</button>
-          <button onclick="captureAndSend()" class="btn-secondary">📸 สแกนทะเบียน</button>
-          <button onclick="switchCamera()" class="btn-secondary">🔄 สลับกล้อง</button>
+          <button onclick="captureAndSend()" class="btn-secondary">📸 สแกนทะเบียน</button> <button onclick="switchCamera()" class="btn-secondary">🔄 สลับกล้อง</button>
           <input type="file" id="imgUpload" class="hidden" onchange="uploadImage(this)">
           <label for="imgUpload" class="btn-secondary cursor-pointer">📁 อัปโหลด</label>
         </div>
@@ -151,6 +150,10 @@
   <script>
     let videoStream = null;
     let currentFacingMode = "environment"; // เริ่มกล้องหลัง
+    let autoScanInterval = null;
+    let isProcessing = false;
+    let lastPlate = null;
+    let lastTime = 0;
     const WS_URL = `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/ws`;
 
     // 1. กล้อง
@@ -175,6 +178,8 @@
         document.getElementById('btnStop').classList.remove('hidden');
         document.getElementById('imageModeLabel').classList.add('hidden');
 
+        startAutoScan();
+
       } catch (err) {
         alert("ไม่สามารถเปิดกล้องได้: " + err);
   }
@@ -183,12 +188,88 @@
       if (videoStream) {
         videoStream.getTracks().forEach(t => t.stop());
         document.getElementById('video').srcObject = null;
-        document.getElementById('camPlaceholder').classList.remove('hidden');
-        document.getElementById('btnStart').classList.remove('hidden');
-        document.getElementById('btnStop').classList.add('hidden');
-        document.getElementById('video').classList.add('hidden');
+
+    // 🔥 หยุด auto scan
+      if (autoScanInterval) {
+        clearInterval(autoScanInterval);
+        autoScanInterval = null;
       }
-    }
+
+    document.getElementById('camPlaceholder').classList.remove('hidden');
+    document.getElementById('btnStart').classList.remove('hidden');
+    document.getElementById('btnStop').classList.add('hidden');
+    document.getElementById('video').classList.add('hidden');
+  }
+}
+    
+function startAutoScan() {
+  if (autoScanInterval) return;
+  autoScanInterval = setInterval(async () => {
+    if (isProcessing) return;
+    const v = document.getElementById('video');
+    if (!v.srcObject) return;
+    isProcessing = true;
+    const canvas = document.createElement('canvas');
+    canvas.width = 640;
+    canvas.height = 480;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(v, 0, 0, 640, 480);
+    canvas.toBlob(async (blob) => {
+      try {
+        const fd = new FormData();
+        fd.append('file', blob);
+        const res = await fetch('/predict', {
+          method: 'POST',
+          body: fd
+        });
+        const data = await res.json();
+        if (data.plates && data.plates.length > 0) {
+          const p = data.plates[0];
+          const now = Date.now();
+          if (p.series_number === lastPlate && (now - lastTime < 3000)) { 
+            isProcessing = false;
+            return;
+          }
+
+          lastPlate = p.series_number;
+          lastTime = now;
+
+          document.getElementById('plateText').innerText = p.series_number || "---";
+          document.getElementById('provinceText').innerText = p.province || "-";
+
+          const img = document.getElementById('plateImgPreview');
+
+          if (p.preview) {
+            img.src = "data:image/jpeg;base64," + p.preview;
+            img.classList.remove('hidden');
+            document.getElementById('plateImgLabel').classList.add('hidden');
+          }
+          
+          let badge = "";
+
+          if (p.status === "ENTRY") {
+            badge = "<span class='status-parked'>🅿️ รถเข้า</span>";
+          } else if (p.status === "EXIT") {
+            if (p.fee && p.fee > 0) {
+              badge = `<span class='status-exited'>🚗 รถออก (${p.fee}฿)</span>`;
+            } else {
+              badge = "<span class='status-exited'>🚗 รถออก (ฟรี)</span>";
+            }
+          }
+          document.getElementById('statusBadge').innerHTML = badge;
+          if (typeof fetchRecords === "function") {
+            fetchRecords();
+          }
+        }
+
+      } catch (e) {
+        console.error("AUTO SCAN ERROR:", e);
+      }
+      isProcessing = false;
+    }, 'image/jpeg', 0.7);
+
+  }, 2000); 
+}
 
     function switchCamera() {
     if (videoStream) {
@@ -214,38 +295,41 @@
       document.getElementById('plateImgLabel').classList.add('hidden');
     }
 
-    function uploadImage(input) {
-      if (input.files[0]) {
-        // 🔥 ปิดกล้องก่อน
-        if (videoStream) {
-          videoStream.getTracks().forEach(track => track.stop());
-        }
-        const reader = new FileReader();
-        reader.onload = function(e) {
-          // 🔥 preview เล็ก
-          const img = document.getElementById('plateImgPreview');
-          img.src = e.target.result;
-          img.classList.remove('hidden');
-          document.getElementById('plateImgLabel').classList.add('hidden');
-          // 🔥 preview ใหญ่
-          const mainImg = document.getElementById('uploadPreviewMain');
-          mainImg.src = e.target.result;
-          mainImg.classList.remove('hidden');
-          // 🔥 ซ่อน video
-          document.getElementById('video').classList.add('hidden');
-          document.getElementById('camPlaceholder').classList.add('hidden');
-          // 🔥 แสดง label
-          document.getElementById('imageModeLabel').classList.remove('hidden');
-          // 🔥 ปรับปุ่ม
-          document.getElementById('btnStop').classList.add('hidden');
-          document.getElementById('btnStart').classList.remove('hidden');
-        };
+function uploadImage(input) {
+  if (input.files[0]) {
 
-        reader.readAsDataURL(input.files[0]);
-        sendBlob(input.files[0]);
+    if (videoStream) {
+      videoStream.getTracks().forEach(track => track.stop());
+    }
+
+    const reader = new FileReader();
+
+    reader.onload = function(e) {
+      const img = document.getElementById('plateImgPreview');
+      img.src = e.target.result;
+      img.classList.remove('hidden');
+      document.getElementById('plateImgLabel').classList.add('hidden');
+
+      const mainImg = document.getElementById('uploadPreviewMain');
+      mainImg.src = e.target.result;
+      mainImg.classList.remove('hidden');
+
+      document.getElementById('video').classList.add('hidden');
+      document.getElementById('camPlaceholder').classList.add('hidden');
+
+      document.getElementById('imageModeLabel').classList.remove('hidden');
+      document.getElementById('btnStop').classList.add('hidden');
+      document.getElementById('btnStart').classList.remove('hidden');
+    };
+
+    reader.readAsDataURL(input.files[0]);
+
+    sendBlob(input.files[0]);
+
+    // 🔥 แก้ตรงนี้
+    input.value = "";
   }
 }
-
     async function sendBlob(blob) {
       const fd = new FormData(); fd.append('file', blob);
       document.getElementById('statusBadge').innerHTML = "<span class='text-blue-500 animate-pulse'>⌛ กำลังสแกน...</span>";
