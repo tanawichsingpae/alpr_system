@@ -6,36 +6,41 @@
 
 ## 🌟 Key Features
 
-* **Automatic Plate Detection & OCR**
-  ใช้โมเดล **YOLO (You Only Look Once)** ในการตรวจจับตำแหน่งป้ายทะเบียน (Detection) และดึงข้อมูลตัวอักษร ตัวเลข รวมถึงจังหวัดจากป้ายทะเบียนได้อย่างแม่นยำ (OCR)
+- **Automatic Plate Detection & OCR**  
+  ใช้โมเดล **YOLOv8** สำหรับตรวจจับป้ายทะเบียน และอ่านข้อมูลตัวอักษร ตัวเลข รวมถึงจังหวัดบนป้ายทะเบียน
 
-* **Advanced Image Preprocessing**
-  มีระบบปรับปรุงคุณภาพรูปภาพอัตโนมัติ เช่น:
+- **Advanced Image Preprocessing**  
+  ปรับปรุงคุณภาพภาพอัตโนมัติ เช่น:
 
-  * Deskew & PCA Alignment
-  * Contrast Enhancement (CLAHE)
-  * Image Sharpening
+  - Deskew  
+  - PCA Alignment  
+  - Image Upscaling  
+  - Noise Reduction  
+  - Contrast Enhancement  
+  - Edge Sharpening  
 
-* **Parking Logic & Fee Calculation**
+- **Parking Logic & Fee Calculation**
 
-  * ฟรี 30 นาทีแรก
-  * คิดค่าบริการแบบรายนาทีหลังจากนั้น
+  - ฟรี 30 นาทีแรก  
+  - คิดค่าบริการแบบรายนาทีหลังจากนั้น  
 
-* **Real-time Dashboard & Updates**
-  แสดงข้อมูลแบบ Real-time ผ่าน **WebSocket**
+- **Real-time Dashboard**
 
-* **Database Management**
-  เก็บข้อมูลการจอด + รูปภาพ (Base64) ลง **SQLite**
+  - แสดงสถานะรถเข้า-ออกแบบ Real-time ผ่าน WebSocket  
+
+- **Database Management**
+
+  - เก็บข้อมูลรถเข้าออกและรูปภาพใน SQLite  
 
 ---
 
 ## 🛠 Tech Stack
 
-* **Backend**: FastAPI (Python)
-* **AI/ML/Computer Vision**: YOLO, OpenCV, Scikit-learn
-* **Database**: SQLite
-* **Frontend**: HTML, JavaScript (Tailwind / Bootstrap)
-* **Communication**: WebSocket & REST API
+- **Backend:** FastAPI (Python)  
+- **AI/ML:** YOLOv8, OpenCV, Scikit-learn  
+- **Database:** SQLite  
+- **Frontend:** HTML, JavaScript, Tailwind CSS  
+- **Communication:** REST API, WebSocket  
 
 ---
 
@@ -45,36 +50,105 @@
 ├── main.py
 ├── database.py
 ├── templates/
+├── static/
 ├── runs/
 └── parking.db
 ```
 
 ---
 
-## 🚀 How it Works
+## 🔄 System Workflow
+images\system_workflow.jpg
+### Automatic License Plate Recognition Pipeline
 
-1. **Image Acquisition**
-   รับภาพจากกล้องหรือ API (`/predict`)
+ระบบรองรับการรับภาพจาก 2 ช่องทาง ได้แก่:
 
-2. **Vehicle & Plate Detection**
-   ใช้ YOLO ตรวจจับและ crop ป้ายทะเบียน
+- กล้อง Real-time (Video Stream)
+- อัปโหลดรูปภาพผ่านหน้าเว็บ
 
-3. **Image Enhancement**
+จากนั้นระบบจะประมวลผลตามขั้นตอนดังนี้:
 
-   * Deskew / PCA Alignment
-   * CLAHE
-   * Sharpening
+### 1. Input Image
 
-4. **OCR Processing**
-   อ่านเลขทะเบียน + ตัวอักษร + จังหวัด
+รับภาพเข้าสู่ระบบจากกล้องหรือการอัปโหลดไฟล์
 
-5. **Business Logic**
+### 2. Receive Image
 
-   * ENTRY → บันทึกข้อมูลรถ
-   * EXIT → คำนวณเวลา + ค่าจอด
+ส่งภาพไปยัง FastAPI Endpoint เพื่อเริ่มกระบวนการตรวจจับ
 
-6. **Real-time Update**
-   ส่งข้อมูลไป Dashboard ผ่าน WebSocket
+### 3. Plate Detection
+
+ใช้โมเดล **YOLOv8** ตรวจจับตำแหน่งป้ายทะเบียนจากภาพรถ
+
+### 4. Select Best Bounding Box
+
+เลือก Bounding Box ที่เหมาะสมที่สุดจากผลลัพธ์ที่ตรวจจับได้ โดยพิจารณาจาก:
+
+- confidence score  
+- object position  
+
+📌 ตัวอย่างการเลือก Bounding Box:
+
+images\bounding_box.jpg
+
+### 5. Crop Plate Region
+
+ตัดเฉพาะบริเวณป้ายทะเบียนออกจากภาพต้นฉบับ
+
+### 6. Resize Plate Image
+
+ปรับขนาดป้ายทะเบียนเป็น **320×160 pixels** เพื่อให้เหมาะกับการประมวลผล
+
+### 7. Plate Preprocessing
+
+ปรับปรุงคุณภาพภาพก่อน OCR:
+
+- Deskew Plate  
+- PCA Alignment  
+- Image Upscaling  
+- Noise Reduction  
+- Contrast Enhancement  
+- Edge Sharpening  
+
+### 8. Character Detection
+
+ใช้โมเดล OCR (**YOLOv8**) ตรวจจับตัวอักษรบนป้ายทะเบียน
+
+📌 ตัวอย่าง Character Detection:
+
+images\ocr.jpg
+
+### 9. OCR Fallback
+
+หากโมเดลตรวจจับไม่ครบ ระบบจะใช้ OCR สำรองเพื่อช่วยอ่านข้อมูล
+
+### 10. Remove Duplicate Characters
+
+ลบ Bounding Box ที่ซ้อนกันหรือซ้ำซ้อน
+
+### 11. Plate Parsing
+
+จัดรูปแบบผลลัพธ์โดยแยก:
+
+- ตัวอักษร  
+- ตัวเลข  
+- จังหวัด  
+
+### 12. Output Result
+
+ส่งผลลัพธ์กลับระบบ:
+
+- หมายเลขทะเบียน  
+- จังหวัด  
+- ภาพป้ายทะเบียน  
+
+---
+
+## 🖼 System Pipeline Diagram
+
+```markdown
+![ALPR Pipeline](images/alpr_pipeline.png)
+```
 
 ---
 
@@ -99,8 +173,21 @@ pip install -r requirements.txt
 uvicorn main:app --reload
 ```
 
-### 4. Access Dashboard
+### 4. Open Dashboard
 
-```
+```text
 http://127.0.0.1:8000
 ```
+
+---
+images\web_demo.jpg
+## 📌 Core Functionality
+
+- ตรวจจับป้ายทะเบียนจากภาพรถแบบอัตโนมัติ  
+- อ่านเลขทะเบียนและจังหวัด  
+- บันทึกเวลาเข้า-ออก  
+- คำนวณค่าจอดรถ  
+- อัปเดต Dashboard แบบ Real-time  
+- จัดเก็บข้อมูลย้อนหลังในฐานข้อมูล  
+
+---
